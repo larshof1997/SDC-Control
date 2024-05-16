@@ -72,6 +72,12 @@ direction = ones(length(gradbypoint),1);
 
 %calculating curvature vector 
 
+curvature = getCurvature(xref2s,yref2s);
+
+%plot(gradbypoint,curvature);
+
+%xlabel('distance')
+%ylabel('çurvature')
 
 function curvature = getCurvature(xref,yref)
 
@@ -84,12 +90,6 @@ d2y = gradient(dy);
 curvature = (dx.*d2y - dy.*d2x) ./(dx.^2 + dy.^2).^(3/2);
 end
 
-curvature = getCurvature(xref2s,yref2s);
-
-%plot(gradbypoint,curvature);
-
-%xlabel('distance')
-%ylabel('çurvature')
 
 
 
