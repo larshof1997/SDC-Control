@@ -18,7 +18,7 @@ class Simulation:
         self.dt = 1/fps
         self.map_size_x = 60
         self.map_size_y = 20
-        self.frames = 1300
+        self.frames = 4000
         self.loop = False
 
 class Path:
