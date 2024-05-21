@@ -31,6 +31,7 @@ class Map:
         # order linestrings suc
 
         line_strings = self.lines['geometry'].values
+        self.line_strings = line_strings
         lines = {}
         # Concatenate all LineString geometries into a single LineString
         concatenated_line_string = LineString()
@@ -47,6 +48,8 @@ class Map:
             list(lines["8"]) +
             list(lines["6"])
         ]
+
+        self.polygon_lines = concatenated_line_string
 
         polypoints = []
         for tuple in concatenated_line_string:
@@ -94,7 +97,7 @@ class Map:
         plt.legend()
         plt.show()
 
-    def discretize_polygon(self, step_size=0.00001):
+    def discretize_polygon(self, step_size=0.001):
         min_x, min_y, max_x, max_y = self.polygon.bounds
         x_coords = np.arange(min_x, max_x, step_size)
         y_coords = np.arange(min_y, max_y, step_size)
@@ -114,16 +117,21 @@ class Map:
         plt.legend()
         plt.show()
 
-    def check_steering_angle(self, p1, p2, max_angle=35):
-        dx = p2.x - p1.x
-        dy = p2.y - p1.y
-        angle = np.arctan2(dy, dx) * 180 / np.pi
-        return abs(angle) <= max_angle
+    # def check_steering_angle(self, p1, p2, max_angle=35):
+    #     dx = p2.x - p1.x
+    #     dy = p2.y - p1.y
+    #     angle = np.arctan2(dy, dx) * 180 / np.pi
+    #     return abs(angle) <= max_angle
 
-    def create_edges(self, max_angle=45):
+    def create_edges(self):
         self.edges = []
         for p1, p2 in itertools.combinations(self.grid, 2):
-            if self.check_steering_angle(p1, p2, max_angle):
+            edge = LineString([p1, p2])
+            # intersects_list = [edge.intersects(LineString(line)) for line in self.polygon_lines]
+            # print(intersects_list)  # Print the actual boolean values
+            # intersects = any(intersects_list)
+
+            if not edge.intersects(LineString(self.polygon_lines[0])):
                 self.edges.append((p1, p2))
 
     def build_graph_from_points(self):
@@ -134,13 +142,13 @@ class Map:
             p1, p2 = edge
             self.G.add_edge((p1.x, p1.y), (p2.x, p2.y))
 
-    def euclidean_distance(self, x1, y1, x2, y2):
-        """
-        Calculate the Euclidean distance between two points
-        """
-        return math.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+    # def euclidean_distance(self, x1, y1, x2, y2):
+    #     """
+    #     Calculate the Euclidean distance between two points
+    #     """
+    #     return math.sqrt((x2 - x1)**2 + (y2 - y1)**2)
 
-    def closest_node(self, lat, lon, nodes):
+    def closest_node(self, x, y, nodes):
         """
         Find the closest node to a given latitude and longitude point
         from a list of nodes.
@@ -149,12 +157,16 @@ class Map:
         min_distance = float('inf')
 
         for node in nodes:
-            distance = self.euclidean_distance(lon, lat, node[0], node[1])
+            distance = self.euclidean_distance(x, y, node[0], node[1])
             if distance < min_distance:
                 min_distance = distance
                 closest_node = node
 
         return closest_node
+
+    def euclidean_distance(node1, node2):
+        """Calculate the Euclidean distance between two nodes given their positions."""
+        return np.linalg.norm(np.array(pos[node1]) - np.array(pos[node2]))
 
     def find_shortest_path(self, start, end):
         self.discretize_polygon()
@@ -163,9 +175,8 @@ class Map:
 
         start_node = self.closest_node(start[0], start[1], self.G.nodes)
         end_node = self.closest_node(end[0], end[1],self.G.nodes)
-        print(start_node,end_node)
 
-        shortest_path = nx.shortest_path(self.G, start_node, end_node)
+        shortest_path = nx.shortest_path(self.G, start_node, end_node, weight=self.euclidean_distance())
 
         path_coords = [(x, y) for x, y in shortest_path]
         return path_coords
