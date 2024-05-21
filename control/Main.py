@@ -9,6 +9,15 @@ import os
 from libs import CarDescription, KinematicBicycleModel, generate_cubic_spline
 from stanley_controller import StanleyController
 
+import utm
+
+# Get path to waypoints.csv
+with open(os.getcwd() + '/control/data/polygon.csv', newline='') as f:
+    rows = list(csv.reader(f, delimiter=','))
+
+# Assuming 'rows' is defined somewhere above this code
+polygon_x,polygon_y = [[float(i) for i in row] for row in zip(*rows[1:])]
+
 class Simulation:
 
     def __init__(self):
@@ -16,8 +25,8 @@ class Simulation:
         fps = 50.0
 
         self.dt = 1/fps
-        self.map_size_x = 60
-        self.map_size_y = 20
+        self.map_size_x = 25
+        self.map_size_y = 25
         self.frames = 4000
         self.loop = False
 
@@ -29,8 +38,9 @@ class Path:
         with open(os.getcwd() + '/control/data/waypoints.csv', newline='') as f:
             rows = list(csv.reader(f, delimiter=','))
 
-        ds = 0.05
-        x, y = [[float(i) for i in row] for row in zip(*rows[1:])]
+        ds = 0.01
+        # Assuming 'rows' is defined somewhere above this code
+        x,y = [[float(i) for i in row] for row in zip(*rows[1:])]
         self.px, self.py, self.pyaw, _ = generate_cubic_spline(x, y, ds)
 
 class Car:
@@ -166,6 +176,8 @@ def main():
 
     ax[0].set_aspect('equal')
     ax[0].plot(path.px, path.py, '--', color='gold')
+    ax[0].plot(polygon_x, polygon_y, color='black')
+    
 
     annotation = ax[0].annotate(f"Crosstrack error: {float('inf')}", xy=(car.x - 10, car.y + 5), color='black', annotation_clip=False)
     target, = ax[0].plot([], [], '+r')

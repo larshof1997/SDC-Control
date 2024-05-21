@@ -3,18 +3,29 @@ import geopandas as gpd
 import shapely.geometry as geometry
 import matplotlib.pyplot as plt
 from shapely.geometry import Point, Polygon, MultiLineString, MultiPolygon, LineString
+from shapely.strtree import STRtree
 import os
 import numpy as np
 import itertools
 import networkx as nx
 import math
+import pandas as pd
+import csv
+from pyproj import Proj, transform, Transformer
+
+# Define the projection for latitude and longitude (WGS84)
+wgs84 = Proj(init='epsg:4326')
+
+# Define the local projection (UTM zone 31U)
+local_projection = Proj(init='epsg:32631') # UTM zone 31U
 
 class Map:
     def __init__(self, position, osm_file):
         # Position should be an (x, y) tuple
         # osm_file should be an OSM file path
 
-        self.position = Point(position)  # Initial position [x, y]
+        x, y = transform(wgs84, local_projection, position[0], position[1])
+        self.position = Point((x,y))  # Initial position [x, y]
 
         # Read the OSM file and create a graph
         G = ox.graph_from_xml(osm_file)
@@ -49,18 +60,31 @@ class Map:
             list(lines["6"])
         ]
 
-        self.polygon_lines = concatenated_line_string
-
         polypoints = []
         for tuple in concatenated_line_string:
             for point in tuple:
-                polypoints.append([point[0],point[1]])
+                # Transform coordinates from WGS84 to local meters
+                x, y = transform(wgs84, local_projection, point[0], point[1])
+                polypoints.append((x, y))
 
         # Convert the concatenated LineString to a Polygon
         self.polygon = Polygon(polypoints)
+
+
+        file_path = os.getcwd() + "/control/data/polygon.csv"
+
+        # Write the coordinates to the CSV file
+        with open(file_path, "w", newline="") as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(["X-axis", "Y-axis"])  # Write header
+            writer.writerows(polypoints)  # Write path coordinates
+
+        print(f"Polygon saved to {file_path}")
         # plt.legend()
         # plt.legend()  # Add legend
         # plt.show()
+
+        self.polygon_lines = polypoints
     
 
     def update_location(self, position):
@@ -97,11 +121,12 @@ class Map:
         plt.legend()
         plt.show()
 
-    def discretize_polygon(self, step_size=0.001):
+    def discretize_polygon(self, step_size=1):
         min_x, min_y, max_x, max_y = self.polygon.bounds
         x_coords = np.arange(min_x, max_x, step_size)
         y_coords = np.arange(min_y, max_y, step_size)
-        self.grid = [Point(x, y) for x, y in itertools.product(x_coords, y_coords) if self.polygon.contains(Point(x, y))]
+        points = [Point(x, y) for x, y in itertools.product(x_coords, y_coords)]
+        self.grid = [point for point in points if self.polygon.contains(point)]
 
     def plot_discretized_points(self):
         fig, ax = plt.subplots()
@@ -123,6 +148,12 @@ class Map:
     #     angle = np.arctan2(dy, dx) * 180 / np.pi
     #     return abs(angle) <= max_angle
 
+    def euclidean_distance(self, x1, y1, x2, y2):
+        """
+        Calculate the Euclidean distance between two points
+        """
+        return math.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+
     def create_edges(self):
         self.edges = []
         for p1, p2 in itertools.combinations(self.grid, 2):
@@ -131,8 +162,12 @@ class Map:
             # print(intersects_list)  # Print the actual boolean values
             # intersects = any(intersects_list)
 
-            if not edge.intersects(LineString(self.polygon_lines[0])):
+            if not edge.intersects(LineString(self.polygon_lines)):
                 self.edges.append((p1, p2))
+
+
+
+
 
     def build_graph_from_points(self):
         self.G = nx.Graph()
@@ -140,13 +175,15 @@ class Map:
             self.G.add_node((point.x, point.y))
         for edge in self.edges:
             p1, p2 = edge
-            self.G.add_edge((p1.x, p1.y), (p2.x, p2.y))
+            self.G.add_edge((p1.x, p1.y), (p2.x, p2.y), weight = self.euclidean_distance(p1.x, p1.y,p2.x, p2.y))
 
-    # def euclidean_distance(self, x1, y1, x2, y2):
-    #     """
-    #     Calculate the Euclidean distance between two points
-    #     """
-    #     return math.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+        # Define the file path
+        file_path = os.getcwd() + "/control/data/graph.edgelist"
+
+        # Write the graph to an edge list file
+        nx.write_edgelist(self.G, file_path)
+        print("check2")
+
 
     def closest_node(self, x, y, nodes):
         """
@@ -164,19 +201,22 @@ class Map:
 
         return closest_node
 
-    def euclidean_distance(node1, node2):
-        """Calculate the Euclidean distance between two nodes given their positions."""
-        return np.linalg.norm(np.array(pos[node1]) - np.array(pos[node2]))
-
     def find_shortest_path(self, start, end):
         self.discretize_polygon()
         self.create_edges()
         self.build_graph_from_points()
 
+
+        x, y = transform(wgs84, local_projection, start[0], start[1])
+        start = [x,y]
+        x, y = transform(wgs84, local_projection, end[0], end[1])
+        end = [x,y]
+
         start_node = self.closest_node(start[0], start[1], self.G.nodes)
         end_node = self.closest_node(end[0], end[1],self.G.nodes)
-
-        shortest_path = nx.shortest_path(self.G, start_node, end_node, weight=self.euclidean_distance())
+        print("check3")
+        shortest_path = nx.shortest_path(self.G, start_node, end_node,weight='weight')
+        
 
         path_coords = [(x, y) for x, y in shortest_path]
         return path_coords
@@ -187,6 +227,7 @@ class Map:
         plt.plot(x, y, label='Polygon')
         
         path_coords = np.array(path_coords)
+        print(path_coords)
         plt.plot(path_coords[:, 0], path_coords[:, 1], color='blue', linewidth=2, label='Shortest Path')
         
         plt.scatter(path_coords[0, 0], path_coords[0, 1], color='green', label='Start Point')
@@ -217,9 +258,9 @@ osm_file_path = os.path.join(os.getcwd(), 'control', 'lanelet2_map_versimpeld.os
 point = (5.513063, 52.459907)
 
 map_instance = Map(point, osm_file_path)
-# map_instance.plot_location()
+map_instance.plot_location()
 map_instance.discretize_polygon()
-# map_instance.plot_discretized_points()
+map_instance.plot_discretized_points()
 
 
 # print(map.check_point_in_polygon(point))
@@ -235,18 +276,28 @@ start_position = (5.513063, 52.459907)
 end_position = (5.511204, 52.458896)
 
 # if map_instance.check_point_in_polygon(end_position):
-
 # Find the shortest path
 path_coords = map_instance.find_shortest_path(start_position, end_position)
+# Define the file path
+file_path = os.getcwd() + "/control/data/waypoints.csv"
+
+# Write the coordinates to the CSV file
+with open(file_path, "w", newline="") as csvfile:
+    writer = csv.writer(csvfile)
+    writer.writerow(["X-axis", "Y-axis"])  # Write header
+    writer.writerows(path_coords)  # Write path coordinates
+
+print(f"Path coordinates saved to {file_path}")
+
 
 # Plot the shortest path
 map_instance.plot_path(path_coords)
 
-# Smooth the trajectory
-smooth_path_coords = map_instance.smooth_trajectory(path_coords)
+# # Smooth the trajectory
+# smooth_path_coords = map_instance.smooth_trajectory(path_coords)
 
-# Plot the smoothed trajectory
-map_instance.plot_path(smooth_path_coords)
+# # Plot the smoothed trajectory
+# map_instance.plot_path(smooth_path_coords)
 
 
 
