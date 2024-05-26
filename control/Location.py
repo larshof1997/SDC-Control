@@ -12,6 +12,9 @@ import math
 import pandas as pd
 import csv
 from pyproj import Proj, transform, Transformer
+from scipy.optimize import minimize
+import ast
+from scipy.interpolate import Akima1DInterpolator
 
 # Define the projection for latitude and longitude (WGS84)
 wgs84 = Proj(init='epsg:4326')
@@ -165,10 +168,6 @@ class Map:
             if not edge.intersects(LineString(self.polygon_lines)):
                 self.edges.append((p1, p2))
 
-
-
-
-
     def build_graph_from_points(self):
         self.G = nx.Graph()
         for point in self.grid:
@@ -178,11 +177,10 @@ class Map:
             self.G.add_edge((p1.x, p1.y), (p2.x, p2.y), weight = self.euclidean_distance(p1.x, p1.y,p2.x, p2.y))
 
         # Define the file path
-        file_path = os.getcwd() + "/control/data/graph.edgelist"
+        file_path = os.getcwd() + "/control/data/weighted_graph.graphml"
 
         # Write the graph to an edge list file
-        nx.write_edgelist(self.G, file_path)
-        print("check2")
+        nx.write_graphml(self.G, file_path)
 
 
     def closest_node(self, x, y, nodes):
@@ -201,10 +199,45 @@ class Map:
 
         return closest_node
 
-    def find_shortest_path(self, start, end):
-        self.discretize_polygon()
-        self.create_edges()
-        self.build_graph_from_points()
+    # def optimal_path(self, current_location, goal_location):
+        
+    #     pass
+
+    def reduce_graph(self):
+        """
+        Ensure that the path cannot be too close to the polygon boundary
+        """
+        wrong_nodes = []
+        wrong_edges = []
+        for node in self.G.nodes:
+            point = Point((node[0],node[1]))
+            distance = point.distance(LineString(self.polygon_lines))
+            if distance < self.margin:
+                wrong_nodes.append(node)
+
+        for edge in self.G.edges:
+            line = LineString([edge[0], edge[1]])
+            distance = line.distance(LineString(self.polygon_lines))
+            if distance < self.margin:
+                wrong_edges.append(edge)
+
+        for edge in wrong_edges:
+            G.remove_edge(*edge)
+
+        for node in wrong_nodes:
+            G.remove_node(node)
+
+    def find_shortest_path(self, start, end, G = None, margin= None):
+        if not G:
+            self.discretize_polygon()
+            self.create_edges()
+            self.build_graph_from_points()
+
+        self.G = G
+
+        if margin:
+            self.margin = margin
+            self.reduce_graph()
 
 
         x, y = transform(wgs84, local_projection, start[0], start[1])
@@ -214,12 +247,31 @@ class Map:
 
         start_node = self.closest_node(start[0], start[1], self.G.nodes)
         end_node = self.closest_node(end[0], end[1],self.G.nodes)
-        print("check3")
+
         shortest_path = nx.shortest_path(self.G, start_node, end_node,weight='weight')
         
-
         path_coords = [(x, y) for x, y in shortest_path]
         return path_coords
+
+    def find_all_paths(self, start, end, G = None):
+        if not G:
+            self.discretize_polygon()
+            self.create_edges()
+            self.build_graph_from_points()
+
+        self.G = G
+
+        x, y = transform(wgs84, local_projection, start[0], start[1])
+        start = [x,y]
+        x, y = transform(wgs84, local_projection, end[0], end[1])
+        end = [x,y]
+
+        start_node = self.closest_node(start[0], start[1], self.G.nodes)
+        end_node = self.closest_node(end[0], end[1],self.G.nodes)
+
+        return list(nx.all_simple_paths(self.G, start_node, end_node))
+    
+
 
     def plot_path(self, path_coords):
         fig, ax = plt.subplots()
@@ -227,7 +279,6 @@ class Map:
         plt.plot(x, y, label='Polygon')
         
         path_coords = np.array(path_coords)
-        print(path_coords)
         plt.plot(path_coords[:, 0], path_coords[:, 1], color='blue', linewidth=2, label='Shortest Path')
         
         plt.scatter(path_coords[0, 0], path_coords[0, 1], color='green', label='Start Point')
@@ -243,14 +294,29 @@ class Map:
         path_coords = np.array(path_coords)
         x = path_coords[:, 0]
         y = path_coords[:, 1]
+        
+        # Create a parameter for the points
         t = np.linspace(0, 1, len(x))
         
-        # Interpolation
-        x_interp = np.interp(np.linspace(0, 1, num_points), t, x)
-        y_interp = np.interp(np.linspace(0, 1, num_points), t, y)
+        # Interpolating with Akima1DInterpolator
+        interp_x = Akima1DInterpolator(t, x)
+        interp_y = Akima1DInterpolator(t, y)
         
-        smooth_path_coords = list(zip(x_interp, y_interp))
-        return smooth_path_coords
+        # Generate new points
+        t_new = np.linspace(0, 1, num_points)
+        x_new = interp_x(t_new)
+        y_new = interp_y(t_new)
+        
+        smooth_path_coords = list(zip(x_new, y_new))
+
+        # Calculate derivatives
+        dx_dt = np.gradient(x_new, t_new)
+        dy_dt = np.gradient(y_new, t_new)
+
+        # Calculate yaw angles
+        yaw_angles = np.arctan2(dy_dt, dx_dt)
+
+        return smooth_path_coords, yaw_angles
 
 # Path to the OSM file
 osm_file_path = os.path.join(os.getcwd(), 'control', 'lanelet2_map_versimpeld.osm')
@@ -258,9 +324,9 @@ osm_file_path = os.path.join(os.getcwd(), 'control', 'lanelet2_map_versimpeld.os
 point = (5.513063, 52.459907)
 
 map_instance = Map(point, osm_file_path)
-map_instance.plot_location()
-map_instance.discretize_polygon()
-map_instance.plot_discretized_points()
+# map_instance.plot_location()
+# map_instance.discretize_polygon()
+# map_instance.plot_discretized_points()
 
 
 # print(map.check_point_in_polygon(point))
@@ -275,9 +341,42 @@ map_instance.plot_discretized_points()
 start_position = (5.513063, 52.459907)
 end_position = (5.511204, 52.458896)
 
-# if map_instance.check_point_in_polygon(end_position):
-# Find the shortest path
-path_coords = map_instance.find_shortest_path(start_position, end_position)
+new_graph = False
+new_shortest_path = True
+
+if new_graph:
+    path_coords = map_instance.find_shortest_path(start_position, end_position)
+else: 
+    # Read the weighted graph from the file
+    file_path = os.getcwd() + "/control/data/weighted_graph.graphml"
+    # Read the graph from the GraphML file
+    G_loaded = nx.read_graphml(file_path)
+
+    # Convert node labels back to tuples
+    G_converted = nx.Graph()
+    for node in G_loaded.nodes:
+        # Convert string representation of tuple back to tuple
+        tuple_node = tuple(map(float, node.strip('()').split(',')))
+        G_converted.add_node(tuple_node)
+        # Copy over edges
+        for neighbor in G_loaded.neighbors(node):
+            tuple_neighbor = tuple(map(float, neighbor.strip('()').split(',')))
+            weight = G_loaded[node][neighbor]['weight']
+            G_converted.add_edge(tuple_node, tuple_neighbor, weight=weight)
+
+    G = G_converted
+
+    path_coords = map_instance.find_shortest_path(start_position, end_position, G, margin = 1)
+    # else:
+    #     # Define the file path
+    #     file_path = os.getcwd() + "/control/data/waypoints.csv"
+    #     with open(file_path, newline='') as f:
+    #         rows = list(csv.reader(f, delimiter=','))
+
+    #     # Assuming 'rows' is defined somewhere above this code
+    #     path_coords = np.array(rows[1:])
+    #     print(path_coords)
+            
 # Define the file path
 file_path = os.getcwd() + "/control/data/waypoints.csv"
 
@@ -294,10 +393,19 @@ print(f"Path coordinates saved to {file_path}")
 map_instance.plot_path(path_coords)
 
 # # Smooth the trajectory
-# smooth_path_coords = map_instance.smooth_trajectory(path_coords)
+smooth_path_coords, yaw_angles = map_instance.smooth_trajectory(path_coords)
+# Define the file path
+file_path = os.getcwd() + "/control/data/yaw_angles.csv"
 
+# Write the yaw angles to the CSV file
+with open(file_path, "w", newline="") as csvfile:
+    writer = csv.writer(csvfile)
+    writer.writerow(["Yaw_angle"])  # Write header
+    writer.writerows([[angle] for angle in yaw_angles])  # Write yaw angles
+
+print(f"Yaw angles saved to {file_path}")
 # # Plot the smoothed trajectory
-# map_instance.plot_path(smooth_path_coords)
+map_instance.plot_path(smooth_path_coords)
 
 
 

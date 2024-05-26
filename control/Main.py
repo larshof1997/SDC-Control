@@ -9,8 +9,6 @@ import os
 from libs import CarDescription, KinematicBicycleModel, generate_cubic_spline
 from stanley_controller import StanleyController
 
-import utm
-
 # Get path to waypoints.csv
 with open(os.getcwd() + '/control/data/polygon.csv', newline='') as f:
     rows = list(csv.reader(f, delimiter=','))
@@ -18,16 +16,18 @@ with open(os.getcwd() + '/control/data/polygon.csv', newline='') as f:
 # Assuming 'rows' is defined somewhere above this code
 polygon_x,polygon_y = [[float(i) for i in row] for row in zip(*rows[1:])]
 
+
+
 class Simulation:
 
     def __init__(self):
 
-        fps = 50.0
+        fps = 10.0
 
         self.dt = 1/fps
         self.map_size_x = 25
         self.map_size_y = 25
-        self.frames = 4000
+        self.frames = 1400
         self.loop = False
 
 class Path:
@@ -38,10 +38,28 @@ class Path:
         with open(os.getcwd() + '/control/data/waypoints.csv', newline='') as f:
             rows = list(csv.reader(f, delimiter=','))
 
-        ds = 0.01
+        ds = 0.1
         # Assuming 'rows' is defined somewhere above this code
         x,y = [[float(i) for i in row] for row in zip(*rows[1:])]
+
+        # Get path to waypoints.csv
+        with open(os.getcwd() + '/control/data/yaw_angles.csv', newline='') as f:
+            rows = list(csv.reader(f, delimiter=','))
+
+        # Assuming 'rows' is defined somewhere above this code
+        # print(rows)
+        yaw = [float(row[0]) for row in rows[1:]]
+
+
         self.px, self.py, self.pyaw, _ = generate_cubic_spline(x, y, ds)
+        print(self.px)
+        print(np.array(x))
+
+        # print(self.pyaw)
+
+        # self.px = np.array(x)
+        # self.py = np.array(y)
+        # self.pyaw = yaw
 
 class Car:
 
