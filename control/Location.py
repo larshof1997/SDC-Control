@@ -324,9 +324,9 @@ osm_file_path = os.path.join(os.getcwd(), 'control', 'lanelet2_map_versimpeld.os
 point = (5.513063, 52.459907)
 
 map_instance = Map(point, osm_file_path)
-# map_instance.plot_location()
-# map_instance.discretize_polygon()
-# map_instance.plot_discretized_points()
+map_instance.plot_location()
+map_instance.discretize_polygon()
+map_instance.plot_discretized_points()
 
 
 # print(map.check_point_in_polygon(point))
@@ -380,13 +380,13 @@ else:
 # Define the file path
 file_path = os.getcwd() + "/control/data/waypoints.csv"
 
-# Write the coordinates to the CSV file
-with open(file_path, "w", newline="") as csvfile:
-    writer = csv.writer(csvfile)
-    writer.writerow(["X-axis", "Y-axis"])  # Write header
-    writer.writerows(path_coords)  # Write path coordinates
+# # Write the coordinates to the CSV file
+# with open(file_path, "w", newline="") as csvfile:
+#     writer = csv.writer(csvfile)
+#     writer.writerow(["X-axis", "Y-axis"])  # Write header
+#     writer.writerows(path_coords)  # Write path coordinates
 
-print(f"Path coordinates saved to {file_path}")
+# print(f"Path coordinates saved to {file_path}")
 
 
 # Plot the shortest path
@@ -397,13 +397,13 @@ smooth_path_coords, yaw_angles = map_instance.smooth_trajectory(path_coords)
 # Define the file path
 file_path = os.getcwd() + "/control/data/yaw_angles.csv"
 
-# Write the yaw angles to the CSV file
-with open(file_path, "w", newline="") as csvfile:
-    writer = csv.writer(csvfile)
-    writer.writerow(["Yaw_angle"])  # Write header
-    writer.writerows([[angle] for angle in yaw_angles])  # Write yaw angles
+# # Write the yaw angles to the CSV file
+# with open(file_path, "w", newline="") as csvfile:
+#     writer = csv.writer(csvfile)
+#     writer.writerow(["Yaw_angle"])  # Write header
+#     writer.writerows([[angle] for angle in yaw_angles])  # Write yaw angles
 
-print(f"Yaw angles saved to {file_path}")
+# print(f"Yaw angles saved to {file_path}")
 # # Plot the smoothed trajectory
 map_instance.plot_path(smooth_path_coords)
 

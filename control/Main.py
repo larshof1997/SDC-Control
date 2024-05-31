@@ -8,6 +8,7 @@ import os
 
 from libs import CarDescription, KinematicBicycleModel, generate_cubic_spline
 from stanley_controller import StanleyController
+from longitudinal_control import LongitudinalController
 
 # Get path to waypoints.csv
 with open(os.getcwd() + '/control/data/polygon.csv', newline='') as f:
@@ -22,10 +23,10 @@ class Simulation:
 
     def __init__(self):
 
-        fps = 10.0
+        fps = 20.0
 
         self.dt = 1/fps
-        self.map_size_x = 25
+        self.map_size_x = 60
         self.map_size_y = 25
         self.frames = 1400
         self.loop = False
@@ -69,7 +70,8 @@ class Car:
         self.x = init_x
         self.y = init_y
         self.yaw = init_yaw
-        self.v = 8.0 #Find a way to implement lateral control
+        self.v = 0 #Find a way to implement lateral control
+        self.goal_v = 4.0
         self.delta = 0.0
         self.wheelbase = 1.687
         self.max_steer = radians(35) #Stock is 35
@@ -81,10 +83,10 @@ class Car:
         self.px = path_params.px
         self.py = path_params.py
         self.pyaw = path_params.pyaw
-        self.k = 8.0
-        self.ksoft = 1.0
+        self.k = 3.5
+        self.ksoft = 15.0
         self.kyaw = 0.0
-        self.ksteer = 0.0
+        self.ksteer = 0.5
         self.crosstrack_error = None
         self.target_id = None
 
@@ -96,17 +98,32 @@ class Car:
         self.axle_track = 1.112
         self.rear_overhang = (self.overall_length - self.wheelbase) / 2
 
+        #Longitudinal control parameters
+        self.kp = 0.8
+        self.ki = 0.01
+        self.kd = 0
+    
+
         self.tracker = StanleyController(self.k, self.ksoft, self.kyaw, self.ksteer, self.max_steer, self.wheelbase, self.px, self.py, self.pyaw)
         self.kbm = KinematicBicycleModel(self.wheelbase, self.dt)
+        self.longitudinal = LongitudinalController(self.dt, self.kp, self.ki, self.kd)
 
-    def drive(self):
+    def drive(self,t):
         
+        if t > 10: 
+            self.goal_v = 8.0
+        if t > 20: 
+            self.goal_v = 2.0
+        if t > 30: 
+            self.goal_v = 6.0
+
+        
+        self.v = self.longitudinal.update_speed(v_desired=self.goal_v)
         self.delta, self.target_id, self.crosstrack_error = self.tracker.stanley_control(self.x, self.y, self.yaw, self.v, self.delta)
         self.x, self.y, self.yaw = self.kbm.kinematic_model(self.x, self.y, self.yaw, self.v, self.delta)
-
 class Fargs:
 
-    def __init__(self, ax, sim, path, car, desc, outline, fr, rr, fl, rl, rear_axle, annotation, target, yaw_arr, yaw_data, crosstrack_arr, crosstrack_data):
+    def __init__(self, ax, sim, path, car, desc, outline, fr, rr, fl, rl, rear_axle, annotation, target, yaw_arr, yaw_data, crosstrack_arr, crosstrack_data, velocity_arr, velocity_data):
         
         self. ax = ax
         self.sim = sim
@@ -125,7 +142,8 @@ class Fargs:
         self.yaw_data = yaw_data
         self.crosstrack_arr = crosstrack_arr
         self.crosstrack_data = crosstrack_data
-
+        self.velocity_arr = velocity_arr
+        self.velocity_data = velocity_data
 def animate(frame, fargs):
 
     ax = fargs.ax
@@ -145,6 +163,8 @@ def animate(frame, fargs):
     yaw_data = fargs.yaw_data
     crosstrack_arr = fargs.crosstrack_arr
     crosstrack_data = fargs.crosstrack_data
+    velocity_arr = fargs.velocity_arr
+    velocity_data = fargs.velocity_data
 
     ax[0].set_title(f'{sim.dt*frame:.2f}s', loc='right')
 
@@ -153,7 +173,7 @@ def animate(frame, fargs):
     ax[0].set_ylim(car.y - sim.map_size_y, car.y + sim.map_size_y)
 
     # Drive and draw car
-    car.drive()
+    car.drive(t=sim.dt*frame)
     outline_plot, fr_plot, rr_plot, fl_plot, rl_plot = desc.plot_car(car.x, car.y, car.yaw, car.delta)
     outline.set_data(outline_plot[0], outline_plot[1])
     fr.set_data(*fr_plot)
@@ -179,7 +199,12 @@ def animate(frame, fargs):
     crosstrack_data.set_data(np.arange(frame + 1), crosstrack_arr)
     ax[2].set_ylim(crosstrack_arr[-1] - 1, crosstrack_arr[-1] + 1)
 
-    return outline, fr, rr, fl, rl, rear_axle, target, yaw_data, crosstrack_data,
+    # Animate velocity
+    velocity_arr.append(car.v)
+    velocity_data.set_data(np.arange(frame + 1), velocity_arr)
+    ax[3].set_ylim(0,max(velocity_arr)+2.0)
+
+    return outline, fr, rr, fl, rl, rear_axle, target, yaw_data, crosstrack_data, velocity_data
 
 def main():
     
@@ -190,7 +215,7 @@ def main():
 
     interval = sim.dt * 10**3
 
-    fig, ax = plt.subplots(3, 1)
+    fig, ax = plt.subplots(4, 1)
 
     ax[0].set_aspect('equal')
     ax[0].plot(path.px, path.py, '--', color='gold')
@@ -219,6 +244,12 @@ def main():
     ax[2].set_ylabel("Crosstrack error")
     ax[2].grid()
 
+    velocity_arr = []
+    velocity_data, = ax[3].plot([], [])
+    ax[3].set_xlim(0, sim.frames)
+    ax[3].set_ylabel("Velocity (m/s)")
+    ax[3].grid()
+
     fargs = [
         Fargs(
             ax=ax,
@@ -237,7 +268,9 @@ def main():
             yaw_arr=yaw_arr,
             yaw_data=yaw_data,
             crosstrack_arr=crosstrack_arr,
-            crosstrack_data=crosstrack_data
+            crosstrack_data=crosstrack_data,
+            velocity_arr=velocity_arr,
+            velocity_data=velocity_data
         )
     ]
 
@@ -247,6 +280,7 @@ def main():
 
     print(f"Mean yaw: {np.mean(yaw_arr)}")
     print(f"Mean crosstrack error: {np.mean(crosstrack_arr)}")
+    print(f"Mean velocity: {np.mean(velocity_arr)}")
 
 if __name__ == '__main__':
     main()
